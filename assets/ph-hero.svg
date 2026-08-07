@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="900">
+  <rect width="100%" height="100%" fill="#f8fafc"/>
+  <rect x="60" y="60" width="380" height="660" fill="#ffffff" stroke="#e6eef8" stroke-width="2" rx="12"/>
+  <text x="520" y="220" font-family="Arial, Helvetica, sans-serif" font-size="64" fill="#0b1220">Compose posts</text>
+  <text x="520" y="300" font-family="Arial, Helvetica, sans-serif" font-size="28" fill="#475569">Write LinkedIn & X posts in seconds</text>
+  <rect x="520" y="380" width="520" height="220" fill="#e6f2ff" rx="10"/>
+  <text x="560" y="440" font-family="Arial, Helvetica, sans-serif" font-size="22" fill="#0366d6">Popup UI screenshot here</text>
+  <text x="60" y="760" font-family="Arial, Helvetica, sans-serif" font-size="18" fill="#64748b">AI Post Composer — MVP</text>
+</svg>
