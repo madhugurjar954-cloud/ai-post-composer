@@ -1,3 +1,4 @@
+<!-- Add Pro UI: license entry, API base, AI generate button -->
 <!doctype html>
 <html>
 <head>
@@ -46,13 +47,27 @@
 
     <div class="buttons">
       <button id="generate">Generate</button>
+      <button id="generateAI" class="secondary">Generate (AI)</button>
       <button id="copy" class="secondary">Copy</button>
     </div>
 
     <textarea id="output" placeholder="Generated post will appear here"></textarea>
 
+    <div class="pro">
+      <label>Pro license key
+        <input id="license" placeholder="paste your license key" />
+      </label>
+      <div style="display:flex;gap:8px;margin-top:6px;align-items:center">
+        <button id="activate">Activate</button>
+        <div id="licenseStatus" style="font-size:13px;color:#64748b">Not activated</div>
+      </div>
+      <label style="margin-top:8px">API base (deployed server URL)
+        <input id="apiBase" placeholder="https://your-deploy.vercel.app" />
+      </label>
+    </div>
+
     <div class="footer">
-      <small>MVP: Templates only. Upgrade adds AI generation later.</small>
+      <small>MVP: Templates only unless Pro is activated. Pro enables AI generation via your deployed server.</small>
       <a href="REPLACE_WITH_GUMROAD_LINK" id="buy" target="_blank">Get Pro / lifetime deal</a>
     </div>
   </div>
