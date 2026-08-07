@@ -1,0 +1,30 @@
+AI Post Composer — Product Hunt image text and layout instructions
+
+Create four images (1200 × 900 px recommended). Use simple, readable fonts and a clear 2–3 color palette. If you use Canva, pick a clean template and replace text with the lines below. Add a screenshot of the popup UI where indicated.
+
+Image 1 — Hero / Install
+- Caption (large): Compose posts in seconds
+- Subtext (smaller): Tiny Chrome extension with templates for LinkedIn & X
+- Visual: screenshot of the popup (center-left) + large caption on the right
+
+Image 2 — Templates
+- Caption (large): Templates for every post type
+- Bullets (3): Short posts · Threads · Personal stories / promos
+- Visual: show the popup Type selector and an example generated post screenshot
+
+Image 3 — Launch deal
+- Caption (large): Launch lifetime deal — $19
+- Subtext: Early adopters get lifetime access and a future Pro discount
+- Visual: price badge and a small screenshot of the buy button on the landing page
+
+Image 4 — Roadmap
+- Caption (large): Roadmap — coming soon
+- Bullets: AI generation (LLMs) · Scheduling · Premium templates
+- Visual: simple 3-step horizontal roadmap graphic
+
+Tips:
+- Keep text short and legible. Use 36–48px for captions and 18–24px for bullets.
+- Use consistent brand colors (blue #0366d6, green #10b981, dark text #0b1220) or your preferred palette.
+- Export as PNGs and name them: ph-hero.png, ph-templates.png, ph-deal.png, ph-roadmap.png
+
+If you want, I can generate the exact PNG images with the text overlaid or create simple mockups you can use directly. Reply: Create PH images and I will generate downloadable images for you.

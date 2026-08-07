@@ -13,6 +13,8 @@
     .features{display:flex;gap:12px;margin-top:20px;flex-wrap:wrap}
     .card{flex:1 1 260px;border:1px solid #e6eef8;padding:12px;border-radius:8px;background:#fff}
     footer{margin-top:40px;color:#64748b;font-size:13px}
+    .install{margin-top:20px;padding:12px;border-left:4px solid #0366d6;background:#f8fafc}
+    code{background:#eef2ff;padding:2px 6px;border-radius:4px}
   </style>
 </head>
 <body>
@@ -41,8 +43,19 @@
     </div>
   </section>
 
+  <section class="install">
+    <h3>How to install (unpacked)</h3>
+    <p>If you download the ZIP or clone the repo, install the extension locally in Chrome:</p>
+    <ol>
+      <li>Open <code>chrome://extensions</code> and enable <strong>Developer mode</strong>.</li>
+      <li>Click <strong>Load unpacked</strong> and choose the extension folder (the folder that contains <code>manifest.json</code>).</li>
+      <li>The extension will appear in your toolbar — click it to open the popup and start composing.</li>
+    </ol>
+    <p>Full instructions are included in <a href="/INSTALL.md">INSTALL.md</a> in the repo.</p>
+  </section>
+
   <footer>
-    <p>Built by you. First release: MVP templates. <strong>Note:</strong> Chrome Web Store requires a one-time $5 publishing fee.</p>
+    <p>Built by you. First release: MVP templates. <strong>Note:</strong> Chrome Web Store requires a one-time $5 publishing fee. If you prefer not to pay, download the ZIP and follow the unpacked install steps above.</p>
   </footer>
 </body>
 </html>
