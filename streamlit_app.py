@@ -3,7 +3,10 @@ import os
 import requests
 import json
 import random
+from html import escape
+import streamlit.components.v1 as components
 
+# --- Page setup
 st.set_page_config(page_title="AI Post Composer — Live Demo", layout="centered", page_icon="✨")
 
 # Simple CSS to make the app look nicer
@@ -17,12 +20,13 @@ st.markdown(
     .small { font-size:13px; color:#94a3b8 }
     .cta { background: #0366d6; color: white; padding:10px 14px; border-radius:8px; text-decoration:none }
     .pill { background:#eef2ff; color:#0366d6; padding:6px 10px; border-radius:999px; font-weight:600 }
+    .output-area { white-space: pre-wrap; font-family: system-ui, -apple-system, Segoe UI, Roboto, 'Helvetica Neue', Arial; }
     </style>
     """,
     unsafe_allow_html=True,
 )
 
-# Header / Hero
+# --- Header / Hero
 with st.container():
     col1, col2 = st.columns([2,1])
     with col1:
@@ -33,36 +37,29 @@ with st.container():
         """, unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
     with col2:
-        # show a small badge
         st.markdown('<div style="text-align:center"><span class="pill">MVP</span><div class="small">Instant demo — no install</div></div>', unsafe_allow_html=True)
 
 st.markdown('---')
 
-# Controls area
-with st.container():
-    st.subheader('Compose a post — try templates or AI')
-    platform = st.selectbox('Platform', options=['linkedin', 'twitter'], format_func=lambda x: 'LinkedIn' if x=='linkedin' else 'X / Twitter')
-    type_ = st.selectbox('Type', options=['short', 'thread', 'promo', 'personal'], format_func=lambda x: x.title())
-    tone = st.selectbox('Tone', options=['professional', 'friendly', 'casual', 'confident'], format_func=lambda x: x.title())
-    context = st.text_input('Keywords / context', value='e.g., CS50, project, interview tips')
-    length = st.slider('Length (verbosity)', min_value=1, max_value=5, value=3)
-
-    colA, colB = st.columns([1,1])
-    with colA:
-        gen_templates = st.button('Generate (Templates)')
-    with colB:
-        gen_ai = st.button('Generate (AI)')
-
-    st.markdown('')
-
-# Sidebar: Pro & settings
+# --- Sidebar: Pro & settings
 st.sidebar.header('Pro / Deployment')
 license_key = st.sidebar.text_input('Pro license key (optional)')
 api_base = st.sidebar.text_input('API base (deployed server URL)', value='')
 st.sidebar.markdown('**Notes**')
 st.sidebar.markdown('• Templates work without any key.\n• For AI generation, set OPENAI_API_KEY on the server or provide an API base.')
 
-# Templates content
+# --- Form inputs
+with st.form(key='compose'):
+    st.subheader('Compose a post — pick options and press Generate')
+    mode = st.radio('Mode', options=['Templates', 'AI'], index=0)
+    platform = st.selectbox('Platform', options=['linkedin', 'twitter'], format_func=lambda x: 'LinkedIn' if x=='linkedin' else 'X / Twitter')
+    type_ = st.selectbox('Type', options=['short', 'thread', 'promo', 'personal'], format_func=lambda x: x.title())
+    tone = st.selectbox('Tone', options=['professional', 'friendly', 'casual', 'confident'], format_func=lambda x: x.title())
+    context = st.text_input('Keywords / context', value='e.g., CS50, project, interview tips')
+    length = st.slider('Length (verbosity)', min_value=1, max_value=5, value=3)
+    submit = st.form_submit_button('Generate')
+
+# --- Templates content
 TEMPLATES = {
     'linkedin': {
         'short': [
@@ -102,7 +99,7 @@ TEMPLATES = {
     }
 }
 
-# Small helper functions
+# --- Helpers
 
 def sample(list_):
     return random.choice(list_)
@@ -117,30 +114,12 @@ def render_template(template, ctx):
             text = text.replace('{' + k + '}', v)
         return text
 
-# Output area with examples and live preview
-with st.container():
-    left, right = st.columns([2,1])
-    with left:
-        out_place = st.empty()
-    with right:
-        st.markdown('<div class="card">', unsafe_allow_html=True)
-        st.markdown('<strong>Example outputs</strong>', unsafe_allow_html=True)
-        st.markdown('<div class="small muted">Real examples help convert users — show 2-3 good samples here.</div>', unsafe_allow_html=True)
-        # Two curated examples
-        st.markdown('''
-        <div style='margin-top:8px'>
-        <div style='padding:8px;border-radius:8px;background:#f8fafc'><strong>Personal (LinkedIn)</strong><br>
-        Today I realized that small, consistent projects compound into big wins. Working on my CS50 project helped me focus on fundamentals and ship something useful.
-        </div>
-        <div style='padding:8px;border-radius:8px;background:#fff7ed;margin-top:8px'><strong>Promo (X)</strong><br>
-        Launching ProjectX — helps students practice interviews with bite-sized challenges. Early access open — DM to join.
-        </div>
-        </div>
-        ''', unsafe_allow_html=True)
-        st.markdown('</div>', unsafe_allow_html=True)
+# Initialize session state for output
+if 'last_output' not in st.session_state:
+    st.session_state['last_output'] = ''
 
-# Handle button interactions
-if gen_templates:
+# Handle generate action
+if submit:
     ctx = {
         'context': context,
         'takeaway': 'focus on fundamentals',
@@ -156,75 +135,97 @@ if gen_templates:
         'problem': 'getting stuck on docs',
         'benefit': 'save time'
     }
-    template = sample(TEMPLATES[platform][type_])
-    text = render_template(template, ctx)
-    if length >= 4:
-        text += '\n\nExtra tip: ' + ctx['advice']
-    out_place.text_area('Generated (Templates)', value=text, height=260)
 
-if gen_ai:
-    # Prefer the provided API base (serverless) if user set it; otherwise try streamlit secret
-    st.info('Sending request to AI... this uses your OPENAI API key on the server.')
-    payload = {
-        'platform': platform,
-        'type': type_,
-        'tone': tone,
-        'context': context,
-        'length': length,
-        'license': license_key
-    }
-
-    used_api = None
-    if api_base:
-        used_api = api_base.rstrip('/')
+    if mode == 'Templates':
+        template = sample(TEMPLATES[platform][type_])
+        text = render_template(template, ctx)
+        if length >= 4:
+            text += '\n\nExtra tip: ' + ctx['advice']
+        st.session_state['last_output'] = text
     else:
-        # If deployed on Streamlit, use its server-side key
-        used_api = None
-
-    with st.spinner('Generating...'):
-        if used_api:
+        # AI mode: prefer calling api_base if provided, otherwise use server secret
+        payload = {
+            'platform': platform,
+            'type': type_,
+            'tone': tone,
+            'context': context,
+            'length': length,
+            'license': license_key
+        }
+        used_api = api_base.rstrip('/') if api_base else None
+        with st.spinner('Generating AI post — this may take a few seconds'):
             try:
-                resp = requests.post(used_api + '/api/generate', json=payload, timeout=30)
-                if resp.ok:
-                    data = resp.json()
-                    text = data.get('text') or json.dumps(data)
-                    out_place.text_area('Generated (AI)', value=text, height=260)
-                else:
-                    out_place.text_area('Error from API', value=resp.text, height=200)
-            except Exception as e:
-                st.error('API request failed: ' + str(e))
-        else:
-            # Call OpenAI directly from this Streamlit server if secrets are set
-            OPENAI_KEY = None
-            if 'OPENAI_API_KEY' in st.secrets:
-                OPENAI_KEY = st.secrets['OPENAI_API_KEY']
-            else:
-                OPENAI_KEY = os.environ.get('OPENAI_API_KEY')
-
-            if not OPENAI_KEY:
-                st.error('No OpenAI API key found. Add OPENAI_API_KEY to Streamlit secrets or set the API base to your deployed server.')
-            else:
-                prompt = f"You are a helpful assistant that writes social media posts. Platform: {platform} Type: {type_} Tone: {tone} Context: {context} Length: {length}. Produce one polished output appropriate for the platform."
-                try:
-                    headers = {'Authorization': f'Bearer {OPENAI_KEY}', 'Content-Type': 'application/json'}
-                    body = {
-                        'model': 'gpt-3.5-turbo',
-                        'messages': [
-                            {'role': 'system', 'content': 'You generate concise social media posts based on the user instructions.'},
-                            {'role': 'user', 'content': prompt}
-                        ],
-                        'max_tokens': 350,
-                        'temperature': 0.75
-                    }
-                    r = requests.post('https://api.openai.com/v1/chat/completions', headers=headers, json=body, timeout=30)
-                    if r.ok:
-                        j = r.json()
-                        content = j.get('choices', [{}])[0].get('message', {}).get('content', '')
-                        out_place.text_area('Generated (AI)', value=content, height=260)
+                if used_api:
+                    resp = requests.post(used_api + '/api/generate', json=payload, timeout=30)
+                    if resp.ok:
+                        data = resp.json()
+                        st.session_state['last_output'] = data.get('text', '')
                     else:
-                        out_place.text_area('OpenAI error', value=r.text, height=200)
-                except Exception as e:
-                    st.error('OpenAI call failed: ' + str(e))
+                        # Friendly message, log raw error to console
+                        st.session_state['last_output'] = 'AI generation failed. Please try again in a minute or contact support.'
+                        print('API error', resp.status_code, resp.text)
+                else:
+                    OPENAI_KEY = st.secrets.get('OPENAI_API_KEY') if 'OPENAI_API_KEY' in st.secrets else os.environ.get('OPENAI_API_KEY')
+                    if not OPENAI_KEY:
+                        st.session_state['last_output'] = 'No AI key configured. Set OPENAI_API_KEY in Streamlit secrets or provide an API base.'
+                    else:
+                        headers = {'Authorization': f'Bearer {OPENAI_KEY}', 'Content-Type': 'application/json'}
+                        body = {
+                            'model': 'gpt-3.5-turbo',
+                            'messages': [
+                                {'role': 'system', 'content': 'You generate concise social media posts based on the user instructions.'},
+                                {'role': 'user', 'content': f"Platform: {platform} Type: {type_} Tone: {tone} Context: {context} Length: {length}."}
+                            ],
+                            'max_tokens': 350,
+                            'temperature': 0.75
+                        }
+                        r = requests.post('https://api.openai.com/v1/chat/completions', headers=headers, json=body, timeout=30)
+                        if r.ok:
+                            j = r.json()
+                            content = j.get('choices', [{}])[0].get('message', {}).get('content', '')
+                            st.session_state['last_output'] = content
+                        else:
+                            st.session_state['last_output'] = 'AI generation failed. Please try again in a minute or contact support.'
+                            print('OpenAI error', r.status_code, r.text)
+            except Exception as e:
+                st.session_state['last_output'] = 'AI generation failed. Please try again in a minute or contact support.'
+                print('Generation exception', str(e))
+
+# --- Display output and example outputs
+with st.container():
+    left, right = st.columns([2,1])
+    with left:
+        if st.session_state['last_output']:
+            # Show output in a styled card and provide a copy button via a small HTML component
+            text_to_show = st.session_state['last_output']
+            st.markdown('<div class="card">', unsafe_allow_html=True)
+            st.markdown('<strong>Generated post</strong>', unsafe_allow_html=True)
+            st.markdown(f'<div class="output-area" id="gen">{escape(text_to_show)}</div>', unsafe_allow_html=True)
+            # Copy button component
+            copy_html = f"""
+            <div style='margin-top:8px'>
+              <button onclick="navigator.clipboard.writeText(document.getElementById('gen').innerText)" style='background:#0366d6;color:#fff;border:none;padding:8px 12px;border-radius:6px;cursor:pointer'>Copy to clipboard</button>
+            </div>
+            """
+            components.html(copy_html, height=60)
+            st.markdown('</div>', unsafe_allow_html=True)
+        else:
+            st.markdown('<div class="card"><strong>Try it</strong><div class="small muted">Choose options and press Generate — templates work immediately.</div></div>', unsafe_allow_html=True)
+    with right:
+        st.markdown('<div class="card">', unsafe_allow_html=True)
+        st.markdown('<strong>Example outputs</strong>', unsafe_allow_html=True)
+        st.markdown('<div class="small muted">Real examples help convert users — show 2-3 good samples here.</div>', unsafe_allow_html=True)
+        st.markdown('''
+        <div style='margin-top:8px'>
+        <div style='padding:8px;border-radius:8px;background:#f8fafc'><strong>Personal (LinkedIn)</strong><br>
+        Today I realized that small, consistent projects compound into big wins. Working on my CS50 project helped me focus on fundamentals and ship something useful.
+        </div>
+        <div style='padding:8px;border-radius:8px;background:#fff7ed;margin-top:8px'><strong>Promo (X)</strong><br>
+        Launching ProjectX — helps students practice interviews with bite-sized challenges. Early access open — DM to join.
+        </div>
+        </div>
+        ''', unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
 
 # Footer and CTA
 st.markdown('---')
@@ -237,4 +238,3 @@ with colR:
 st.sidebar.markdown('---')
 st.sidebar.write('Want this as a Chrome extension? The extension calls the same AI backend and offers a popup UI.')
 st.sidebar.markdown('**Support:** https://github.com/madhugurjar954-cloud/ai-post-composer/issues')
-
