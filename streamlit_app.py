@@ -5,6 +5,10 @@ import json
 import random
 from html import escape
 import streamlit.components.v1 as components
+import re
+from collections import Counter
+import io
+import csv
 
 # --- Page setup
 st.set_page_config(page_title="AI Post Composer — Live Demo", layout="centered", page_icon="✨")
@@ -35,7 +39,7 @@ with st.container():
         st.markdown('<div class="hero">', unsafe_allow_html=True)
         st.markdown("""
         <h1 style='margin:0'>AI Post Composer — Live Demo ✨</h1>
-        <p class='muted' style='margin-top:6px'>Write LinkedIn & X posts faster — curated templates, hashtag suggestions, drafts, and optional AI generation.</p>
+        <p class='muted' style='margin-top:6px'>Write LinkedIn & X posts faster — curated templates, hashtag suggestions, drafts, intelligent analyzer, and optional AI generation.</p>
         """, unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
     with col2:
@@ -50,7 +54,7 @@ api_base = st.sidebar.text_input('API base (deployed server URL)', value='')
 st.sidebar.markdown('**Notes**')
 st.sidebar.markdown('• Templates work without any key.\n• For AI generation, set OPENAI_API_KEY on the server or provide an API base.')
 
-# --- Template packs (new feature)
+# --- Template packs
 TEMPLATE_PACKS = {
     'General': {},
     'Students': {
@@ -98,7 +102,7 @@ with st.form(key='compose'):
 
     submit = st.form_submit_button('Generate')
 
-# --- Core templates (fallback and base)
+# --- Core templates (fallback)
 BASE_TEMPLATES = {
     'linkedin': {
         'short': [
@@ -153,7 +157,7 @@ def merged_templates(pack):
 
 TEMPLATES = merged_templates(pack_choice)
 
-# --- Hashtag & emoji suggestions (new feature)
+# --- Hashtag & emoji suggestions
 TRENDING_TAGS = ['100DaysOfCode', 'webdev', 'coding', 'buildinpublic', 'students', 'tech']
 EMOJI_MAP = {
     'professional': ['💼','✅'],
@@ -162,17 +166,12 @@ EMOJI_MAP = {
     'confident': ['🚀','💪']
 }
 
-import re
-from collections import Counter
-
 def suggest_hashtags(text, context):
-    # simple keyword extraction: words longer than 3 characters, exclude stopwords
     stop = set(['the','and','for','with','that','this','from','your','you','are','was','have','has','but','not','yet','get','got'])
     words = re.findall(r"\b\w{4,}\b", (text + ' ' + context).lower())
     candidates = [w for w in words if w not in stop]
     counts = Counter(candidates)
     most = [w for w,_ in counts.most_common(6)]
-    # combine with trending tags and format
     tags = []
     for t in most:
         tag = re.sub(r'[^a-z0-9]','',t)
@@ -181,21 +180,18 @@ def suggest_hashtags(text, context):
     for t in TRENDING_TAGS:
         if t.lower() not in tags:
             tags.append(t)
-    # return top 6
     return ['#' + x for x in tags[:6]]
 
 def suggest_emojis(tone):
     return EMOJI_MAP.get(tone, ['✨'])
 
-# --- Save / Load Drafts (new feature)
+# --- Save / Load Drafts
 if 'drafts' not in st.session_state:
     st.session_state['drafts'] = {}
 
 # --- Helpers
-
 def sample(list_):
     return random.choice(list_)
-
 
 def render_template(template, ctx):
     try:
@@ -212,7 +208,54 @@ PLATFORM_LIMITS = {'twitter': 280, 'linkedin': 1300}
 if 'last_output' not in st.session_state:
     st.session_state['last_output'] = ''
 
-# Handle generate action
+# --- Text analysis utilities (new intelligent feature)
+
+def count_syllables(word):
+    word = word.lower()
+    vowels = 'aeiouy'
+    syllables = 0
+    prev_was_vowel = False
+    for ch in word:
+        is_vowel = ch in vowels
+        if is_vowel and not prev_was_vowel:
+            syllables += 1
+        prev_was_vowel = is_vowel
+    if word.endswith('e') and syllables > 1:
+        syllables -= 1
+    return max(1, syllables)
+
+def flesch_kincaid_grade(text):
+    sentences = max(1, len(re.findall(r'[.!?]+', text)))
+    words = re.findall(r"\w+", text)
+    word_count = max(1, len(words))
+    syllables = sum(count_syllables(w) for w in words)
+    # FK grade
+    score = 0.39 * (word_count / sentences) + 11.8 * (syllables / word_count) - 15.59
+    return round(score, 1)
+
+def detect_cta(text):
+    patterns = ['sign up', 'signup', 'dm', 'message', 'contact', 'learn more', 'join', 'apply', 'download', 'try', 'get', 'visit']
+    t = text.lower()
+    return any(p in t for p in patterns)
+
+def detect_passive(text):
+    # naive passive detection: look for 'was X by' or 'were X by'
+    return len(re.findall(r'\b(was|were|is|are|been|being)\b\s+\w+\s+by\b', text.lower()))
+
+def readability_feedback(text):
+    grade = flesch_kincaid_grade(text)
+    feedback = []
+    avg_words = sum(len(s.split()) for s in re.split(r'[.!?]+', text) if s.strip())
+    avg_words = avg_words or 0
+    if avg_words > 20:
+        feedback.append('Long sentences detected — consider splitting sentences for clarity.')
+    if grade > 12:
+        feedback.append(f'Text reads at ~grade {grade} — simplify language for wider audience.')
+    if len(text.split()) < 20:
+        feedback.append('Short posts can work well; consider adding one clear CTA or result.')
+    return feedback
+
+# --- Handle generate action
 if submit:
     ctx = {
         'context': context,
@@ -237,7 +280,7 @@ if submit:
             text += '\n\nExtra tip: ' + ctx['advice']
         st.session_state['last_output'] = text
     else:
-        # AI mode: prefer calling api_base if provided, otherwise use server secret
+        # AI mode
         payload = {
             'platform': platform,
             'type': type_,
@@ -345,7 +388,6 @@ if st.session_state.get('last_output'):
     st.markdown('<div class="card">', unsafe_allow_html=True)
     st.markdown('<strong>Suggestions</strong>', unsafe_allow_html=True)
     st.markdown(f"<div class='small muted'>Hashtags suggested from your content</div>", unsafe_allow_html=True)
-    # show hashtags with insert buttons
     cols = st.columns(len(suggested))
     for i, tag in enumerate(suggested):
         cols[i].markdown(f"<div class='hashtag'>{tag}</div>", unsafe_allow_html=True)
@@ -362,7 +404,7 @@ with col_d1:
 with col_d2:
     if st.button('Save draft'):
         if st.session_state.get('last_output'):
-            name = draft_name.strip() or f'draft-{len(st.session_state['"'"'drafts'"'"'] )+1}'
+            name = draft_name.strip() or f"draft-{len(st.session_state['drafts'])+1}"
             st.session_state['drafts'][name] = st.session_state['last_output']
             st.success(f'Saved draft: {name}')
 
@@ -376,10 +418,85 @@ if st.session_state['drafts']:
         del st.session_state['drafts'][sel]
         st.experimental_rerun()
     if col_l3.button('Export .txt'):
-        # provide download
         text = st.session_state['drafts'][sel]
         st.download_button('Download draft as .txt', data=text, file_name=f'{sel}.txt')
 
+st.markdown('</div>', unsafe_allow_html=True)
+
+# --- Intelligent Analyzer and Batch Planner (NEW)
+st.markdown('---')
+st.markdown('<div class="card">', unsafe_allow_html=True)
+st.markdown('<strong>Smart Post Analyzer</strong>', unsafe_allow_html=True)
+st.markdown('<div class="small muted">Analyze the current generated post and get actionable suggestions to improve engagement.</div>', unsafe_allow_html=True)
+
+if st.session_state.get('last_output'):
+    analysis_text = st.session_state['last_output']
+    grade = flesch_kincaid_grade(analysis_text)
+    passive_count = detect_passive(analysis_text)
+    has_cta = detect_cta(analysis_text)
+    feedback = readability_feedback(analysis_text)
+
+    st.markdown(f"<div style='margin-top:8px'><strong>Readability (approx grade level):</strong> {grade}</div>", unsafe_allow_html=True)
+    st.markdown(f"<div><strong>Passive constructions found:</strong> {passive_count}</div>", unsafe_allow_html=True)
+    st.markdown(f"<div><strong>Call-to-action present:</strong> {'Yes' if has_cta else 'No'}</div>", unsafe_allow_html=True)
+    if feedback:
+        st.markdown('<div style="margin-top:8px"><strong>Suggestions:</strong></div>', unsafe_allow_html=True)
+        for f in feedback:
+            st.markdown(f"<div class='small muted'>• {f}</div>", unsafe_allow_html=True)
+    # Micro-edit suggestions (non-AI)
+    st.markdown('<div style="margin-top:8px"><strong>Micro-edit suggestions</strong></div>', unsafe_allow_html=True)
+    if not has_cta:
+        st.markdown("<div class='small muted'>• Add a single clear CTA (e.g., 'DM me to try', 'Sign up for early access', 'Check the repo').</div>", unsafe_allow_html=True)
+    if passive_count > 0:
+        st.markdown("<div class='small muted'>• Avoid passive voice (e.g., 'was built by' → rewrite as 'I built').</div>", unsafe_allow_html=True)
+    if grade > 12:
+        st.markdown("<div class='small muted'>• Simplify complex sentences and replace jargon with plain language.</div>", unsafe_allow_html=True)
+    st.markdown('</div>', unsafe_allow_html=True)
+else:
+    st.markdown('<div class="small muted">Generate a post first to analyze it.</div>', unsafe_allow_html=True)
+
+# --- Batch Generator
+st.markdown('---')
+st.markdown('<div class="card">', unsafe_allow_html=True)
+st.markdown('<strong>Batch Planner</strong>', unsafe_allow_html=True)
+st.markdown('<div class="small muted">Create multiple variations and export as CSV for scheduling.</div>', unsafe_allow_html=True)
+num = st.number_input('Number of variations', min_value=1, max_value=20, value=5)
+include_hashtags = st.checkbox('Include suggested hashtags', value=True)
+include_emojis = st.checkbox('Include suggested emojis', value=False)
+if st.button('Generate batch'):
+    rows = []
+    for i in range(int(num)):
+        # vary tone slightly by cycling
+        tone_variation = random.choice(['professional','friendly','casual','confident'])
+        tpl = sample(TEMPLATES.get(platform, {}).get(type_, BASE_TEMPLATES[platform][type_]))
+        ctx = {
+            'context': context,
+            'takeaway': 'focus on fundamentals',
+            'point1': 'practice daily',
+            'point2': 'build projects',
+            'point3': 'read docs',
+            'advice': 'start small and iterate',
+            'surprise': 'it was easier than expected',
+            'steps': '1) plan 2) implement 3) test',
+            'insight': 'small progress compounds',
+            'result': 'I can explain it clearly',
+            'practice': 'building small projects',
+            'problem': 'getting stuck on docs',
+            'benefit': 'save time'
+        }
+        text = render_template(tpl, ctx)
+        hashtags = suggest_hashtags(text, context) if include_hashtags else []
+        emojis = suggest_emojis(tone_variation) if include_emojis else []
+        rows.append({'platform': platform, 'type': type_, 'tone': tone_variation, 'context': context, 'text': text, 'hashtags': ' '.join(hashtags), 'emojis': ' '.join(emojis)})
+    # CSV export
+    buffer = io.StringIO()
+    writer = csv.DictWriter(buffer, fieldnames=['platform','type','tone','context','text','hashtags','emojis'])
+    writer.writeheader()
+    for r in rows:
+        writer.writerow(r)
+    buffer.seek(0)
+    st.download_button('Download batch as CSV', data=buffer.getvalue(), file_name='ai-post-composer-batch.csv', mime='text/csv')
+    st.success(f'Generated {len(rows)} variations')
 st.markdown('</div>', unsafe_allow_html=True)
 
 # Footer and CTA
