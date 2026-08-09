@@ -21,6 +21,8 @@ st.markdown(
     .cta { background: #0366d6; color: white; padding:10px 14px; border-radius:8px; text-decoration:none }
     .pill { background:#eef2ff; color:#0366d6; padding:6px 10px; border-radius:999px; font-weight:600 }
     .output-area { white-space: pre-wrap; font-family: system-ui, -apple-system, Segoe UI, Roboto, 'Helvetica Neue', Arial; }
+    .preview { border:1px solid #e6eef8; padding:12px; border-radius:8px; background:#ffffff }
+    .hashtag { color:#0366d6; font-weight:600 }
     </style>
     """,
     unsafe_allow_html=True,
@@ -33,7 +35,7 @@ with st.container():
         st.markdown('<div class="hero">', unsafe_allow_html=True)
         st.markdown("""
         <h1 style='margin:0'>AI Post Composer — Live Demo ✨</h1>
-        <p class='muted' style='margin-top:6px'>Write LinkedIn & X posts faster — templates, tones, and optional AI generation.</p>
+        <p class='muted' style='margin-top:6px'>Write LinkedIn & X posts faster — curated templates, hashtag suggestions, drafts, and optional AI generation.</p>
         """, unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
     with col2:
@@ -48,6 +50,39 @@ api_base = st.sidebar.text_input('API base (deployed server URL)', value='')
 st.sidebar.markdown('**Notes**')
 st.sidebar.markdown('• Templates work without any key.\n• For AI generation, set OPENAI_API_KEY on the server or provide an API base.')
 
+# --- Template packs (new feature)
+TEMPLATE_PACKS = {
+    'General': {},
+    'Students': {
+        'linkedin': {
+            'short': [
+                "Finished my project on {context}. Key takeaway: {takeaway}. Grateful for mentors and lessons learned.",
+                "Just shipped a small project for {context}. Learned: {takeaway}. Happy to share resources."
+            ],
+            'personal': [
+                "As a student, building {context} taught me {insight}. Small steps matter.",
+            ]
+        }
+    },
+    'Makers': {
+        'linkedin': {
+            'promo': [
+                "Built a small tool for {context} that helps with {benefit}. Early access: DM.",
+            ],
+            'short': [
+                "Made progress on {context} today — main lesson: {takeaway}."
+            ]
+        }
+    },
+    'Job-seekers': {
+        'linkedin': {
+            'short': [
+                "Looking for opportunities in {context}. I enjoy building {skill}. Open to chats."
+            ]
+        }
+    }
+}
+
 # --- Form inputs
 with st.form(key='compose'):
     st.subheader('Compose a post — pick options and press Generate')
@@ -57,10 +92,14 @@ with st.form(key='compose'):
     tone = st.selectbox('Tone', options=['professional', 'friendly', 'casual', 'confident'], format_func=lambda x: x.title())
     context = st.text_input('Keywords / context', value='e.g., CS50, project, interview tips')
     length = st.slider('Length (verbosity)', min_value=1, max_value=5, value=3)
+
+    st.markdown('**Template pack**')
+    pack_choice = st.selectbox('Choose a template pack', options=list(TEMPLATE_PACKS.keys()))
+
     submit = st.form_submit_button('Generate')
 
-# --- Templates content
-TEMPLATES = {
+# --- Core templates (fallback and base)
+BASE_TEMPLATES = {
     'linkedin': {
         'short': [
             "Here’s what I learned from {context} — key takeaway: {takeaway}. If you're learning CS, try this.",
@@ -99,6 +138,59 @@ TEMPLATES = {
     }
 }
 
+# merge selected pack templates into base for generation
+def merged_templates(pack):
+    merged = json.loads(json.dumps(BASE_TEMPLATES))
+    pack_templates = TEMPLATE_PACKS.get(pack, {})
+    for p, types in pack_templates.items():
+        if p not in merged:
+            merged[p] = types
+        else:
+            for t, arr in types.items():
+                merged[p].setdefault(t, [])
+                merged[p][t].extend(arr)
+    return merged
+
+TEMPLATES = merged_templates(pack_choice)
+
+# --- Hashtag & emoji suggestions (new feature)
+TRENDING_TAGS = ['100DaysOfCode', 'webdev', 'coding', 'buildinpublic', 'students', 'tech']
+EMOJI_MAP = {
+    'professional': ['💼','✅'],
+    'friendly': ['😊','🙌'],
+    'casual': ['😄','🔥'],
+    'confident': ['🚀','💪']
+}
+
+import re
+from collections import Counter
+
+def suggest_hashtags(text, context):
+    # simple keyword extraction: words longer than 3 characters, exclude stopwords
+    stop = set(['the','and','for','with','that','this','from','your','you','are','was','have','has','but','not','yet','get','got'])
+    words = re.findall(r"\b\w{4,}\b", (text + ' ' + context).lower())
+    candidates = [w for w in words if w not in stop]
+    counts = Counter(candidates)
+    most = [w for w,_ in counts.most_common(6)]
+    # combine with trending tags and format
+    tags = []
+    for t in most:
+        tag = re.sub(r'[^a-z0-9]','',t)
+        if tag:
+            tags.append(tag)
+    for t in TRENDING_TAGS:
+        if t.lower() not in tags:
+            tags.append(t)
+    # return top 6
+    return ['#' + x for x in tags[:6]]
+
+def suggest_emojis(tone):
+    return EMOJI_MAP.get(tone, ['✨'])
+
+# --- Save / Load Drafts (new feature)
+if 'drafts' not in st.session_state:
+    st.session_state['drafts'] = {}
+
 # --- Helpers
 
 def sample(list_):
@@ -114,7 +206,9 @@ def render_template(template, ctx):
             text = text.replace('{' + k + '}', v)
         return text
 
-# Initialize session state for output
+PLATFORM_LIMITS = {'twitter': 280, 'linkedin': 1300}
+
+# Initialize session state
 if 'last_output' not in st.session_state:
     st.session_state['last_output'] = ''
 
@@ -137,7 +231,7 @@ if submit:
     }
 
     if mode == 'Templates':
-        template = sample(TEMPLATES[platform][type_])
+        template = sample(TEMPLATES.get(platform, {}).get(type_, BASE_TEMPLATES[platform][type_]))
         text = render_template(template, ctx)
         if length >= 4:
             text += '\n\nExtra tip: ' + ctx['advice']
@@ -161,7 +255,6 @@ if submit:
                         data = resp.json()
                         st.session_state['last_output'] = data.get('text', '')
                     else:
-                        # Friendly message, log raw error to console
                         st.session_state['last_output'] = 'AI generation failed. Please try again in a minute or contact support.'
                         print('API error', resp.status_code, resp.text)
                 else:
@@ -191,23 +284,40 @@ if submit:
                 st.session_state['last_output'] = 'AI generation failed. Please try again in a minute or contact support.'
                 print('Generation exception', str(e))
 
-# --- Display output and example outputs
+# --- Display output, preview, hashtags, emojis, drafts
 with st.container():
     left, right = st.columns([2,1])
     with left:
         if st.session_state['last_output']:
-            # Show output in a styled card and provide a copy button via a small HTML component
             text_to_show = st.session_state['last_output']
             st.markdown('<div class="card">', unsafe_allow_html=True)
             st.markdown('<strong>Generated post</strong>', unsafe_allow_html=True)
+
+            # character counter and platform limit
+            limit = PLATFORM_LIMITS.get(platform, 10000)
+            count = len(text_to_show)
+            warn = ''
+            if count > limit:
+                warn = f"⚠️ Exceeds {limit} characters (current: {count})"
+            st.markdown(f"<div class='small muted'>Character count: {count} {warn}</div>", unsafe_allow_html=True)
+
             st.markdown(f'<div class="output-area" id="gen">{escape(text_to_show)}</div>', unsafe_allow_html=True)
-            # Copy button component
+            # copy button
             copy_html = f"""
             <div style='margin-top:8px'>
               <button onclick="navigator.clipboard.writeText(document.getElementById('gen').innerText)" style='background:#0366d6;color:#fff;border:none;padding:8px 12px;border-radius:6px;cursor:pointer'>Copy to clipboard</button>
             </div>
             """
             components.html(copy_html, height=60)
+
+            # Preview area (visual mock)
+            st.markdown('<div style="margin-top:12px" class="preview">', unsafe_allow_html=True)
+            if platform == 'linkedin':
+                st.markdown(f"<strong style='font-size:15px'>You — LinkedIn preview</strong><div style='margin-top:8px'>{escape(text_to_show)}</div>", unsafe_allow_html=True)
+            else:
+                st.markdown(f"<strong style='font-size:15px'>You — X preview</strong><div style='margin-top:8px'>{escape(text_to_show)}</div>", unsafe_allow_html=True)
+            st.markdown('</div>', unsafe_allow_html=True)
+
             st.markdown('</div>', unsafe_allow_html=True)
         else:
             st.markdown('<div class="card"><strong>Try it</strong><div class="small muted">Choose options and press Generate — templates work immediately.</div></div>', unsafe_allow_html=True)
@@ -226,6 +336,51 @@ with st.container():
         </div>
         ''', unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
+
+# Hashtag and emoji suggestions UI
+if st.session_state.get('last_output'):
+    suggested = suggest_hashtags(st.session_state['last_output'], context)
+    emojis = suggest_emojis(tone)
+    st.markdown('---')
+    st.markdown('<div class="card">', unsafe_allow_html=True)
+    st.markdown('<strong>Suggestions</strong>', unsafe_allow_html=True)
+    st.markdown(f"<div class='small muted'>Hashtags suggested from your content</div>", unsafe_allow_html=True)
+    # show hashtags with insert buttons
+    cols = st.columns(len(suggested))
+    for i, tag in enumerate(suggested):
+        cols[i].markdown(f"<div class='hashtag'>{tag}</div>", unsafe_allow_html=True)
+    st.markdown('<div style="margin-top:8px" class="small muted">Emoji suggestions: ' + ' '.join(emojis) + '</div>', unsafe_allow_html=True)
+    st.markdown('</div>', unsafe_allow_html=True)
+
+# Draft save/load/export
+st.markdown('---')
+st.markdown('<div class="card">', unsafe_allow_html=True)
+st.markdown('<strong>Drafts</strong>', unsafe_allow_html=True)
+col_d1, col_d2 = st.columns([2,1])
+with col_d1:
+    draft_name = st.text_input('Draft name (to save current output)')
+with col_d2:
+    if st.button('Save draft'):
+        if st.session_state.get('last_output'):
+            name = draft_name.strip() or f'draft-{len(st.session_state['"'"'drafts'"'"'] )+1}'
+            st.session_state['drafts'][name] = st.session_state['last_output']
+            st.success(f'Saved draft: {name}')
+
+if st.session_state['drafts']:
+    sel = st.selectbox('Load a draft', options=list(st.session_state['drafts'].keys()))
+    col_l1, col_l2, col_l3 = st.columns([1,1,1])
+    if col_l1.button('Load'):
+        st.session_state['last_output'] = st.session_state['drafts'][sel]
+        st.experimental_rerun()
+    if col_l2.button('Delete'):
+        del st.session_state['drafts'][sel]
+        st.experimental_rerun()
+    if col_l3.button('Export .txt'):
+        # provide download
+        text = st.session_state['drafts'][sel]
+        st.download_button('Download draft as .txt', data=text, file_name=f'{sel}.txt')
+
+st.markdown('</div>', unsafe_allow_html=True)
 
 # Footer and CTA
 st.markdown('---')
