@@ -9,28 +9,43 @@ import re
 from collections import Counter
 import io
 import csv
+import qrcode
+import base64
+from PIL import Image, ImageDraw, ImageFont
+import textwrap
 
 # --- Page setup
 st.set_page_config(page_title="AI Post Composer — Live Demo", layout="centered", page_icon="✨")
 
-# Simple CSS to make the app look nicer
-st.markdown(
-    """
-    <style>
-    .stApp { background: linear-gradient(180deg,#f8fafc 0%, #ffffff 100%); }
-    .hero { padding: 18px; border-radius: 12px; background: linear-gradient(90deg,#ffffff,#f1f5f9); box-shadow: 0 6px 18px rgba(11,20,34,0.06); }
-    .muted { color: #64748b; }
-    .card { background: white; padding:12px; border-radius:10px; box-shadow: 0 6px 20px rgba(2,6,23,0.04); }
-    .small { font-size:13px; color:#94a3b8 }
-    .cta { background: #0366d6; color: white; padding:10px 14px; border-radius:8px; text-decoration:none }
-    .pill { background:#eef2ff; color:#0366d6; padding:6px 10px; border-radius:999px; font-weight:600 }
-    .output-area { white-space: pre-wrap; font-family: system-ui, -apple-system, Segoe UI, Roboto, 'Helvetica Neue', Arial; }
-    .preview { border:1px solid #e6eef8; padding:12px; border-radius:8px; background:#ffffff }
-    .hashtag { color:#0366d6; font-weight:600 }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
+# --- Sidebar: Theme & Pro settings
+st.sidebar.header('Appearance & Pro')
+accent = st.sidebar.color_picker('Accent color', '#0366d6')
+dark_mode = st.sidebar.checkbox('Dark mode (preview)', value=False)
+license_key = st.sidebar.text_input('Pro license key (optional)')
+api_base = st.sidebar.text_input('API base (deployed server URL)', value='')
+st.sidebar.markdown('**Notes**')
+st.sidebar.markdown('• Templates work without any key.\n• For AI generation, set OPENAI_API_KEY on the server or provide an API base.')
+
+# Inject CSS with chosen accent and optional dark mode
+bg_gradient = "linear-gradient(180deg,#0f172a 0%, #0b1220 100%)" if dark_mode else "linear-gradient(180deg,#f8fafc 0%, #ffffff 100%)"
+text_color = "#e6eef8" if dark_mode else "#042a3b"
+muted_color = "#9ca3b3" if dark_mode else "#64748b"
+card_bg = "#0b1220" if dark_mode else "#ffffff"
+
+st.markdown(f"""
+<style>
+.stApp {{ background: {bg_gradient}; color: {text_color}; }}
+.hero {{ padding: 18px; border-radius: 12px; background: linear-gradient(90deg,#ffffff,#f1f5f9); box-shadow: 0 6px 18px rgba(11,20,34,0.06); }}
+.muted {{ color: {muted_color}; }}
+.card {{ background: {card_bg}; padding:12px; border-radius:10px; box-shadow: 0 6px 20px rgba(2,6,23,0.04); }}
+.small {{ font-size:13px; color:{muted_color} }}
+.cta {{ background: {accent}; color: white; padding:10px 14px; border-radius:8px; text-decoration:none }}
+.pill {{ background:#eef2ff; color:{accent}; padding:6px 10px; border-radius:999px; font-weight:600 }}
+.output-area {{ white-space: pre-wrap; font-family: system-ui, -apple-system, Segoe UI, Roboto, 'Helvetica Neue', Arial; color: {text_color}; }}
+.preview {{ border:1px solid #e6eef8; padding:12px; border-radius:8px; background:{card_bg} }}
+.hashtag {{ color:{accent}; font-weight:600 }}
+</style>
+""", unsafe_allow_html=True)
 
 # --- Header / Hero
 with st.container():
@@ -40,19 +55,17 @@ with st.container():
         st.markdown("""
         <h1 style='margin:0'>AI Post Composer — Live Demo ✨</h1>
         <p class='muted' style='margin-top:6px'>Write LinkedIn & X posts faster — curated templates, hashtag suggestions, drafts, intelligent analyzer, and optional AI generation.</p>
+        <ul style='margin-top:6px'>
+          <li style='margin-bottom:4px'>Turn a raw idea into a polished post in seconds (templates + AI)</li>
+          <li style='margin-bottom:4px'>Batch variations and CSV export for scheduling</li>
+          <li style='margin-bottom:4px'>Send posts to your phone via QR or download as an image</li>
+        </ul>
         """, unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
     with col2:
         st.markdown('<div style="text-align:center"><span class="pill">MVP</span><div class="small">Instant demo — no install</div></div>', unsafe_allow_html=True)
 
 st.markdown('---')
-
-# --- Sidebar: Pro & settings
-st.sidebar.header('Pro / Deployment')
-license_key = st.sidebar.text_input('Pro license key (optional)')
-api_base = st.sidebar.text_input('API base (deployed server URL)', value='')
-st.sidebar.markdown('**Notes**')
-st.sidebar.markdown('• Templates work without any key.\n• For AI generation, set OPENAI_API_KEY on the server or provide an API base.')
 
 # --- Template packs
 TEMPLATE_PACKS = {
@@ -207,8 +220,10 @@ PLATFORM_LIMITS = {'twitter': 280, 'linkedin': 1300}
 # Initialize session state
 if 'last_output' not in st.session_state:
     st.session_state['last_output'] = ''
+if 'leads' not in st.session_state:
+    st.session_state['leads'] = []
 
-# --- Text analysis utilities (new intelligent feature)
+# --- Text analysis utilities (intelligent features)
 
 def count_syllables(word):
     word = word.lower()
@@ -229,7 +244,6 @@ def flesch_kincaid_grade(text):
     words = re.findall(r"\w+", text)
     word_count = max(1, len(words))
     syllables = sum(count_syllables(w) for w in words)
-    # FK grade
     score = 0.39 * (word_count / sentences) + 11.8 * (syllables / word_count) - 15.59
     return round(score, 1)
 
@@ -239,7 +253,6 @@ def detect_cta(text):
     return any(p in t for p in patterns)
 
 def detect_passive(text):
-    # naive passive detection: look for 'was X by' or 'were X by'
     return len(re.findall(r'\b(was|were|is|are|been|being)\b\s+\w+\s+by\b', text.lower()))
 
 def readability_feedback(text):
@@ -254,6 +267,35 @@ def readability_feedback(text):
     if len(text.split()) < 20:
         feedback.append('Short posts can work well; consider adding one clear CTA or result.')
     return feedback
+
+# --- Utility: generate QR image from text
+def generate_qr_image(text):
+    qr = qrcode.QRCode(box_size=4, border=1)
+    qr.add_data(text)
+    qr.make(fit=True)
+    img = qr.make_image(fill_color="black", back_color="white").convert('RGB')
+    return img
+
+# --- Utility: render post as downloadable PNG
+def render_post_image(text, platform='linkedin'):
+    # Simple PNG rendering with wrapped text
+    width = 800
+    padding = 30
+    font = ImageFont.load_default()
+    # wrap text
+    wrapper = textwrap.TextWrapper(width=60)
+    lines = wrapper.wrap(text)
+    line_height = 14
+    height = padding*2 + line_height * (len(lines) + 2)
+    img = Image.new('RGB', (width, height), color=(255,255,255))
+    d = ImageDraw.Draw(img)
+    y = padding
+    d.text((padding,y), f'You — {platform.title()}', fill=(0,0,0), font=font)
+    y += line_height*2
+    for line in lines:
+        d.text((padding,y), line, fill=(12,14,18), font=font)
+        y += line_height
+    return img
 
 # --- Handle generate action
 if submit:
@@ -280,7 +322,6 @@ if submit:
             text += '\n\nExtra tip: ' + ctx['advice']
         st.session_state['last_output'] = text
     else:
-        # AI mode
         payload = {
             'platform': platform,
             'type': type_,
@@ -348,7 +389,7 @@ with st.container():
             # copy button
             copy_html = f"""
             <div style='margin-top:8px'>
-              <button onclick="navigator.clipboard.writeText(document.getElementById('gen').innerText)" style='background:#0366d6;color:#fff;border:none;padding:8px 12px;border-radius:6px;cursor:pointer'>Copy to clipboard</button>
+              <button onclick="navigator.clipboard.writeText(document.getElementById('gen').innerText)" style='background:{accent};color:#fff;border:none;padding:8px 12px;border-radius:6px;cursor:pointer'>Copy to clipboard</button>
             </div>
             """
             components.html(copy_html, height=60)
@@ -359,6 +400,23 @@ with st.container():
                 st.markdown(f"<strong style='font-size:15px'>You — LinkedIn preview</strong><div style='margin-top:8px'>{escape(text_to_show)}</div>", unsafe_allow_html=True)
             else:
                 st.markdown(f"<strong style='font-size:15px'>You — X preview</strong><div style='margin-top:8px'>{escape(text_to_show)}</div>", unsafe_allow_html=True)
+            st.markdown('</div>', unsafe_allow_html=True)
+
+            # Phone & image helpers
+            st.markdown('<div style="margin-top:8px">', unsafe_allow_html=True)
+            if st.button('Show QR to send to phone'):
+                qr_img = generate_qr_image(text_to_show)
+                buf = io.BytesIO()
+                qr_img.save(buf, format='PNG')
+                buf.seek(0)
+                st.image(buf)
+                st.download_button('Download QR PNG', data=buf, file_name='post-qr.png')
+            if st.button('Download post as image'):
+                img = render_post_image(text_to_show, platform)
+                buf = io.BytesIO()
+                img.save(buf, format='PNG')
+                buf.seek(0)
+                st.download_button('Download post image', data=buf, file_name='post.png')
             st.markdown('</div>', unsafe_allow_html=True)
 
             st.markdown('</div>', unsafe_allow_html=True)
@@ -423,7 +481,7 @@ if st.session_state['drafts']:
 
 st.markdown('</div>', unsafe_allow_html=True)
 
-# --- Intelligent Analyzer and Batch Planner (NEW)
+# --- Intelligent Analyzer and Batch Planner
 st.markdown('---')
 st.markdown('<div class="card">', unsafe_allow_html=True)
 st.markdown('<strong>Smart Post Analyzer</strong>', unsafe_allow_html=True)
@@ -443,7 +501,6 @@ if st.session_state.get('last_output'):
         st.markdown('<div style="margin-top:8px"><strong>Suggestions:</strong></div>', unsafe_allow_html=True)
         for f in feedback:
             st.markdown(f"<div class='small muted'>• {f}</div>", unsafe_allow_html=True)
-    # Micro-edit suggestions (non-AI)
     st.markdown('<div style="margin-top:8px"><strong>Micro-edit suggestions</strong></div>', unsafe_allow_html=True)
     if not has_cta:
         st.markdown("<div class='small muted'>• Add a single clear CTA (e.g., 'DM me to try', 'Sign up for early access', 'Check the repo').</div>", unsafe_allow_html=True)
@@ -466,7 +523,6 @@ include_emojis = st.checkbox('Include suggested emojis', value=False)
 if st.button('Generate batch'):
     rows = []
     for i in range(int(num)):
-        # vary tone slightly by cycling
         tone_variation = random.choice(['professional','friendly','casual','confident'])
         tpl = sample(TEMPLATES.get(platform, {}).get(type_, BASE_TEMPLATES[platform][type_]))
         ctx = {
@@ -488,7 +544,6 @@ if st.button('Generate batch'):
         hashtags = suggest_hashtags(text, context) if include_hashtags else []
         emojis = suggest_emojis(tone_variation) if include_emojis else []
         rows.append({'platform': platform, 'type': type_, 'tone': tone_variation, 'context': context, 'text': text, 'hashtags': ' '.join(hashtags), 'emojis': ' '.join(emojis)})
-    # CSV export
     buffer = io.StringIO()
     writer = csv.DictWriter(buffer, fieldnames=['platform','type','tone','context','text','hashtags','emojis'])
     writer.writeheader()
@@ -499,11 +554,32 @@ if st.button('Generate batch'):
     st.success(f'Generated {len(rows)} variations')
 st.markdown('</div>', unsafe_allow_html=True)
 
+# --- Waitlist / leads capture (no external service required)
+st.markdown('---')
+st.markdown('<div class="card">', unsafe_allow_html=True)
+st.markdown('<strong>Join the waitlist / get updates</strong>', unsafe_allow_html=True)
+lead_email = st.text_input('Enter your email to join the waitlist')
+if st.button('Join waitlist'):
+    if lead_email:
+        st.session_state['leads'].append(lead_email)
+        st.success('Thanks — saved. You will be notified about new features and early access!')
+if st.session_state['leads']:
+    if st.button('Download leads (CSV)'):
+        buf = io.StringIO()
+        w = csv.writer(buf)
+        w.writerow(['email'])
+        for e in st.session_state['leads']:
+            w.writerow([e])
+        buf.seek(0)
+        st.download_button('Download CSV', data=buf.getvalue(), file_name='leads.csv')
+st.markdown('</div>', unsafe_allow_html=True)
+
 # Footer and CTA
 st.markdown('---')
 colL, colR = st.columns([3,1])
 with colL:
     st.markdown('**Ready to try?** Use the live demo, or get the lifetime MVP on Gumroad (install instructions included).')
+    st.markdown('**Pricing:** $19 one-time · 7-day refund if install fails')
 with colR:
     st.markdown('<a class="cta" href="REPLACE_WITH_GUMROAD_LINK" target="_blank">Buy — $19</a>', unsafe_allow_html=True)
 
