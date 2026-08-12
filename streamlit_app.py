@@ -12,29 +12,81 @@ import csv
 from PIL import Image, ImageDraw, ImageFont
 import textwrap
 
-# Minimal animated GIF generator (in-memory)
+# --- Demo GIF and PNG asset generators
 def make_demo_gif():
     frames = []
-    width, height = 700, 300
-    font = ImageFont.load_default()
+    width, height = 900, 500
+    try:
+        font = ImageFont.truetype("DejaVuSans.ttf", 18)
+    except Exception:
+        font = ImageFont.load_default()
     steps = [
         ("1 — Idea", "Type a short idea or keywords (e.g. 'CS50 project')"),
         ("2 — Template", "Pick a template pack and press Generate (Templates)") ,
         ("3 — Improve", "Use Micro-edits & Analyzer to polish the copy"),
         ("4 — Send / Export", "Copy, QR to phone, or download as PNG/CSV")
     ]
+    bg = (250,252,255)
+    header_bg = (3,102,214)
     for title, subtitle in steps:
-        img = Image.new('RGB', (width, height), color=(245, 247, 250))
+        img = Image.new('RGB', (width, height), color=bg)
         d = ImageDraw.Draw(img)
-        d.rectangle([(0,0),(width,60)], fill=(3,102,214))
-        d.text((20,10), 'AI Post Composer', fill=(255,255,255), font=font)
-        d.text((20,90), title, fill=(12,14,18), font=font)
-        d.text((20,130), subtitle, fill=(60,64,67), font=font)
+        d.rectangle([(0,0),(width,80)], fill=header_bg)
+        d.text((24,20), 'AI Post Composer', fill=(255,255,255), font=font)
+        d.text((24,120), title, fill=(12,14,18), font=font)
+        # wrap subtitle
+        wrapper = textwrap.TextWrapper(width=50)
+        lines = wrapper.wrap(subtitle)
+        y = 160
+        for line in lines:
+            d.text((24,y), line, fill=(60,64,67), font=font)
+            y += 28
         frames.append(img)
     buf = io.BytesIO()
     frames[0].save(buf, format='GIF', save_all=True, append_images=frames[1:], duration=900, loop=0)
     buf.seek(0)
     return buf
+
+
+def make_demo_pngs():
+    # Create 4 PNG screenshots (1200x900) for Product Hunt
+    images = []
+    size = (1200,900)
+    try:
+        font_h = ImageFont.truetype("DejaVuSans-Bold.ttf", 36)
+        font_p = ImageFont.truetype("DejaVuSans.ttf", 20)
+    except Exception:
+        font_h = ImageFont.load_default()
+        font_p = ImageFont.load_default()
+
+    captions = [
+        ("Idea → Template → Final", "Turn a raw idea into a polished post in seconds with curated templates and micro‑edits."),
+        ("Smart Analyzer & Micro‑edits", "Readability, CTA detection, and actionable micro‑edits to improve engagement."),
+        ("Batch Planner & CSV", "Generate multiple variations and export them for scheduling or A/B testing."),
+        ("QR to Phone & PNG", "Send posts to your phone via QR or download as PNG for easy mobile posting.")
+    ]
+
+    for title, subtitle in captions:
+        img = Image.new('RGB', size, color=(255,255,255))
+        d = ImageDraw.Draw(img)
+        d.rectangle([(0,0),(size[0],120)], fill=(3,102,214))
+        d.text((40,30), 'AI Post Composer', fill=(255,255,255), font=font_h)
+        d.text((40,160), title, fill=(12,14,18), font=font_h)
+        # wrap subtitle
+        wrapper = textwrap.TextWrapper(width=60)
+        lines = wrapper.wrap(subtitle)
+        y = 220
+        for line in lines:
+            d.text((40,y), line, fill=(60,64,67), font=font_p)
+            y += 30
+        # small footnote
+        d.text((40, size[1]-60), 'Demo: https://ai-post-composer-gakefckrbmsmvn35bqdmga.streamlit.app/', fill=(120,120,120), font=font_p)
+
+        buf = io.BytesIO()
+        img.save(buf, format='PNG')
+        buf.seek(0)
+        images.append(buf)
+    return images
 
 # --- Page setup
 st.set_page_config(page_title="AI Post Composer — Live Demo", layout="centered", page_icon="✨")
@@ -55,7 +107,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# --- Hero with demo GIF
+# --- Hero with demo GIF and download buttons
 st.title("AI Post Composer — Live Demo ✨")
 col1, col2 = st.columns([2,1])
 with col1:
@@ -65,6 +117,13 @@ with col1:
     # show demo gif
     gif_buf = make_demo_gif()
     st.image(gif_buf, caption='Demo: idea → template → polish → export', use_column_width=True)
+    # provide download buttons for the GIF and PNGs
+    st.markdown('**Download demo assets**')
+    st.download_button('Download demo GIF', data=gif_buf.getvalue(), file_name='ai-post-composer-demo.gif', mime='image/gif')
+    pngs = make_demo_pngs()
+    for i, pbuf in enumerate(pngs, start=1):
+        st.download_button(f'Download screenshot {i}', data=pbuf.getvalue(), file_name=f'screenshot-{i}.png', mime='image/png')
+
 with col2:
     st.markdown('<div class="card">', unsafe_allow_html=True)
     st.markdown('<strong>MVP</strong>')
@@ -187,26 +246,26 @@ if st.session_state['last_output']:
         img.save(buf, format='PNG')
         buf.seek(0)
         st.image(buf)
-        st.download_button('Download QR PNG', data=buf, file_name='post-qr.png')
+        st.download_button('Download QR PNG', data=buf.getvalue(), file_name='post-qr.png')
     if st.button('Download as PNG'):
         # render simple PNG
         font = ImageFont.load_default()
         wrapper = textwrap.TextWrapper(width=60)
         lines = wrapper.wrap(text)
-        line_h = 14
-        w,h = 800, 60 + line_h * len(lines)
+        line_h = 18
+        w,h = 1200, 120 + line_h * len(lines)
         img = Image.new('RGB', (w,h), color=(255,255,255))
         d = ImageDraw.Draw(img)
         y = 20
-        d.text((20,y), 'You — Preview', fill=(0,0,0), font=font)
-        y += 30
+        d.text((40,y), 'You — Preview', fill=(0,0,0), font=font)
+        y += 40
         for line in lines:
-            d.text((20,y), line, fill=(12,14,18), font=font)
+            d.text((40,y), line, fill=(12,14,18), font=font)
             y += line_h
         buf = io.BytesIO()
         img.save(buf, format='PNG')
         buf.seek(0)
-        st.download_button('Download post image', data=buf, file_name='post.png')
+        st.download_button('Download post image', data=buf.getvalue(), file_name='post.png')
 
 # BEFORE / AFTER examples (new)
 st.markdown('---')
