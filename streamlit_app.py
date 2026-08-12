@@ -11,6 +11,7 @@ import io
 import csv
 from PIL import Image, ImageDraw, ImageFont
 import textwrap
+import base64
 
 # --- Demo GIF and PNG asset generators
 def make_demo_gif():
@@ -116,13 +117,28 @@ with col1:
     st.markdown('---')
     # show demo gif
     gif_buf = make_demo_gif()
-    st.image(gif_buf, caption='Demo: idea → template → polish → export', use_column_width=True)
+    try:
+        # Encode GIF as base64 and render via HTML to avoid Streamlit display issues
+        gif_bytes = gif_buf.getvalue()
+        gif_b64 = base64.b64encode(gif_bytes).decode()
+        html = f"<img src=\"data:image/gif;base64,{gif_b64}\" alt=\"Demo GIF\" style=\"max-width:100%;height:auto;\">"
+        st.markdown(html, unsafe_allow_html=True)
+    except Exception as e:
+        st.warning('Could not render demo GIF inline. You can download it below.')
+
     # provide download buttons for the GIF and PNGs
     st.markdown('**Download demo assets**')
-    st.download_button('Download demo GIF', data=gif_buf.getvalue(), file_name='ai-post-composer-demo.gif', mime='image/gif')
+    try:
+        st.download_button('Download demo GIF', data=gif_buf.getvalue(), file_name='ai-post-composer-demo.gif', mime='image/gif')
+    except Exception:
+        # fallback
+        st.markdown('Demo GIF download is currently unavailable.')
     pngs = make_demo_pngs()
     for i, pbuf in enumerate(pngs, start=1):
-        st.download_button(f'Download screenshot {i}', data=pbuf.getvalue(), file_name=f'screenshot-{i}.png', mime='image/png')
+        try:
+            st.download_button(f'Download screenshot {i}', data=pbuf.getvalue(), file_name=f'screenshot-{i}.png', mime='image/png')
+        except Exception:
+            st.markdown(f'Screenshot {i} download is currently unavailable.')
 
 with col2:
     st.markdown('<div class="card">', unsafe_allow_html=True)
@@ -135,7 +151,7 @@ st.sidebar.header('Pro / Deployment')
 license_key = st.sidebar.text_input('Pro license key (optional)')
 api_base = st.sidebar.text_input('API base (deployed server URL)', value='')
 st.sidebar.markdown('**Notes**')
-st.sidebar.markdown('• Templates work without any key.\n• For AI generation, set OPENAI_API_KEY on the server or provide an API base.')
+st.sidebar.markdown('• Templates work without any key.\\n• For AI generation, set OPENAI_API_KEY on the server or provide an API base.')
 
 # --- Template packs & core templates
 TEMPLATE_PACKS = {
@@ -185,7 +201,7 @@ def render_template(template, ctx):
 
 def suggest_hashtags(text, context):
     stop = set(['the','and','for','with','that','this','from','your','you','are','was','have','has'])
-    words = re.findall(r"\b\w{4,}\b", (text + ' ' + context).lower())
+    words = re.findall(r"\\b\\w{4,}\\b", (text + ' ' + context).lower())
     candidates = [w for w in words if w not in stop]
     counts = Counter(candidates)
     tags = [w for w,_ in counts.most_common(6)]
@@ -210,7 +226,7 @@ if submitted:
             t = sample(BASE_TEMPLATES.get(platform, {}).get(type_, BASE_TEMPLATES[platform]['short']))
         out = render_template(t, ctx)
         if length >= 4:
-            out += '\n\nTip: ' + ctx['insight']
+            out += '\\n\\nTip: ' + ctx['insight']
         st.session_state['last_output'] = out
     else:
         # AI mode (calls API if available)
@@ -226,7 +242,7 @@ if submitted:
                 st.session_state['last_output'] = 'AI request failed.'
         else:
             # Inform user how to enable
-            st.session_state['last_output'] = 'AI disabled: add OPENAI_API_KEY to Streamlit secrets or provide API base.'
+            st.session_state['last_output'] = 'AI disabled: add OPENAI_API_KEY to Streamlit secrets or provide an API base.'
 
 # Display output
 if st.session_state['last_output']:
